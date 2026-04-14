@@ -17,7 +17,7 @@ function Navbar() {
           to="/signup"
           className="text-cyan-400 border border-cyan-400 px-4 py-2 rounded hover:bg-cyan-400 hover:text-black transition"
         >
-          Signup
+          Register
         </Link>
       </div>
     </nav>
