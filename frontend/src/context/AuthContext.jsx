@@ -78,6 +78,13 @@ export function AuthProvider({ children }) {
     clearSession();
   }, [clearSession]);
 
+  const updateProfile = useCallback(async ({ name, email }) => {
+    const response = await api.patch("/auth/me", { name, email });
+    const { user: nextUser } = response.data;
+    setUser(nextUser);
+    return nextUser;
+  }, []);
+
   const value = {
     user,
     loadingUser,
@@ -85,6 +92,7 @@ export function AuthProvider({ children }) {
     login,
     signup,
     logout,
+    updateProfile,
     extractApiError,
   };
 

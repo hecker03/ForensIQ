@@ -180,6 +180,11 @@ export default function Signup() {
             Login
           </Link>
         </p>
+        <p className="mt-3 text-center text-sm text-gray-500 font-mono">
+          <Link to="/" className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2">
+            Back to Landing Page
+          </Link>
+        </p>
       </div>
     </div>
   );

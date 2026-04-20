@@ -19,6 +19,7 @@ export default function Dashboard() {
   const [records, setRecords] = useState([]);
   const [loadingRecords, setLoadingRecords] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingRecordId, setDeletingRecordId] = useState("");
   const [error, setError] = useState("");
 
   const totalChars = useMemo(
@@ -81,6 +82,19 @@ export default function Dashboard() {
       setError(extractApiError(err, "Unable to save record"));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async (recordId) => {
+    try {
+      setDeletingRecordId(recordId);
+      await api.delete(`/records/${recordId}`);
+      setRecords((prev) => prev.filter((record) => record._id !== recordId));
+      setError("");
+    } catch (err) {
+      setError(extractApiError(err, "Unable to remove record"));
+    } finally {
+      setDeletingRecordId("");
     }
   };
 
@@ -196,9 +210,19 @@ export default function Dashboard() {
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                     <p className="text-sm text-cyan-200 font-medium">{record.title}</p>
-                    <span className="text-[11px] text-gray-500 uppercase tracking-widest font-mono">
-                      {record.category}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-gray-500 uppercase tracking-widest font-mono">
+                        {record.category}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(record._id)}
+                        disabled={deletingRecordId === record._id}
+                        className="text-[11px] px-2 py-1 border border-red-500/40 rounded-md text-red-300 font-mono uppercase tracking-widest hover:bg-red-500/10 transition-colors disabled:opacity-60"
+                      >
+                        {deletingRecordId === record._id ? "Removing..." : "Remove"}
+                      </button>
+                    </div>
                   </div>
                   <p className="text-xs text-gray-400 whitespace-pre-wrap break-words">
                     {record.content}
