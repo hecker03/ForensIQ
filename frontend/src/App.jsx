@@ -4,6 +4,7 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
 import Profile from "./pages/Profile";
+import OperatorSnapshots from "./pages/OperatorSnapshots";
 import Notfound from "./pages/Notfound";
 import ProtectedRoute from "./components/ProtectedRoute";
 import GuestOnlyRoute from "./components/GuestOnlyRoute";
@@ -41,6 +42,14 @@ function App() {
         element={
           <ProtectedRoute>
             <Profile />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/operator-snapshots"
+        element={
+          <ProtectedRoute>
+            <OperatorSnapshots />
           </ProtectedRoute>
         }
       />
