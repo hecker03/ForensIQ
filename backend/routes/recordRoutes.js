@@ -1,4 +1,5 @@
 import express from "express";
+import mongoose from "mongoose";
 import InputRecord from "../models/InputRecord.js";
 import { requireAuth } from "../middleware/auth.js";
 
@@ -36,6 +37,32 @@ router.post("/", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Unable to save record" });
+  }
+});
+
+router.delete("/:recordId", async (req, res) => {
+  try {
+    const { recordId } = req.params;
+
+    if (!mongoose.isValidObjectId(recordId)) {
+      res.status(400).json({ message: "Invalid record id" });
+      return;
+    }
+
+    const deletedRecord = await InputRecord.findOneAndDelete({
+      _id: recordId,
+      user: req.userId,
+    });
+
+    if (!deletedRecord) {
+      res.status(404).json({ message: "Record not found" });
+      return;
+    }
+
+    res.json({ message: "Record removed" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Unable to remove record" });
   }
 });
 

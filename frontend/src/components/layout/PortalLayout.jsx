@@ -86,6 +86,7 @@ export default function PortalLayout({ title, subtitle, children }) {
             </p>
             <div className="space-y-2.5">
               <NavItem to="/dashboard" label="Dashboard" />
+              <NavItem to="/profile" label="Profile" />
               {placeholderItems.map((item) => (
                 <PlaceholderItem key={item} label={item} />
               ))}
@@ -112,12 +113,20 @@ export default function PortalLayout({ title, subtitle, children }) {
                 Profile
               </span>
             </Link>
-            <button
-              onClick={logout}
-              className="px-3 py-2 rounded-lg border border-red-500/40 text-red-300 font-mono text-xs uppercase tracking-widest"
-            >
-              Logout
-            </button>
+            <div className="flex items-center gap-2">
+              <Link
+                to="/"
+                className="px-3 py-2 rounded-lg border border-cyan-500/40 text-cyan-300 font-mono text-xs uppercase tracking-widest"
+              >
+                Home
+              </Link>
+              <button
+                onClick={logout}
+                className="px-3 py-2 rounded-lg border border-red-500/40 text-red-300 font-mono text-xs uppercase tracking-widest"
+              >
+                Logout
+              </button>
+            </div>
           </header>
 
           <div className="border-b border-gray-800/70 px-4 md:px-8 pt-5 md:pt-8 pb-5 md:pb-6 bg-gray-950/45 backdrop-blur-sm">
@@ -139,6 +148,16 @@ export default function PortalLayout({ title, subtitle, children }) {
           <div className="md:hidden border-t border-gray-800/90 p-4 bg-gray-950/70 backdrop-blur-xl">
             <div className="flex gap-2 overflow-x-auto pb-1">
               <Link
+                to="/"
+                className={`whitespace-nowrap rounded-lg px-3 py-2 font-mono text-[11px] uppercase tracking-widest border ${
+                  location.pathname === "/"
+                    ? "border-cyan-400/60 text-cyan-300 bg-cyan-500/10"
+                    : "border-gray-800 text-gray-400"
+                }`}
+              >
+                Home
+              </Link>
+              <Link
                 to="/dashboard"
                 className={`whitespace-nowrap rounded-lg px-3 py-2 font-mono text-[11px] uppercase tracking-widest border ${
                   location.pathname === "/dashboard"
@@ -147,6 +166,16 @@ export default function PortalLayout({ title, subtitle, children }) {
                 }`}
               >
                 Dashboard
+              </Link>
+              <Link
+                to="/profile"
+                className={`whitespace-nowrap rounded-lg px-3 py-2 font-mono text-[11px] uppercase tracking-widest border ${
+                  location.pathname === "/profile"
+                    ? "border-cyan-400/60 text-cyan-300 bg-cyan-500/10"
+                    : "border-gray-800 text-gray-400"
+                }`}
+              >
+                Profile
               </Link>
               {placeholderItems.map((item) => (
                 <span

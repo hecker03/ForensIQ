@@ -13,13 +13,21 @@ function formatJoinDate(value) {
 }
 
 export default function Profile() {
-  const { user } = useAuth();
+  const { user, updateProfile } = useAuth();
+  const [form, setForm] = useState(() => ({
+    name: user?.name || "",
+    email: user?.email || "",
+  }));
   const [stats, setStats] = useState({
     totalRecords: 0,
     latestCategory: "-",
     latestCreatedAt: null,
   });
-  const [error, setError] = useState("");
+  const [loadingStats, setLoadingStats] = useState(true);
+  const [statsError, setStatsError] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -35,10 +43,15 @@ export default function Profile() {
             latestCategory: records[0]?.category || "-",
             latestCreatedAt: records[0]?.createdAt || null,
           });
+          setStatsError("");
         }
       } catch (err) {
         if (!cancelled) {
-          setError(extractApiError(err, "Unable to load profile stats"));
+          setStatsError(extractApiError(err, "Unable to load profile stats"));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingStats(false);
         }
       }
     };
@@ -49,6 +62,37 @@ export default function Profile() {
       cancelled = true;
     };
   }, []);
+
+  const onChange = (field) => (event) => {
+    setForm((prev) => ({ ...prev, [field]: event.target.value }));
+    setSaveSuccess("");
+    setSaveError("");
+  };
+
+  const handleProfileSave = async (event) => {
+    event.preventDefault();
+
+    try {
+      setSavingProfile(true);
+      setSaveError("");
+      setSaveSuccess("");
+
+      const updatedUser = await updateProfile({
+        name: form.name,
+        email: form.email,
+      });
+      setForm({
+        name: updatedUser?.name || "",
+        email: updatedUser?.email || "",
+      });
+
+      setSaveSuccess("Profile updated successfully.");
+    } catch (err) {
+      setSaveError(extractApiError(err, "Unable to update profile"));
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   return (
     <PortalLayout
@@ -61,26 +105,53 @@ export default function Profile() {
             User Identity
           </h2>
 
-          <dl className="space-y-3">
-            <div className="rounded-lg border border-gray-800 bg-gray-800/40 p-3">
-              <dt className="text-[11px] uppercase tracking-[0.2em] text-gray-500 font-mono mb-1">
+          <form onSubmit={handleProfileSave} className="space-y-4">
+            <div>
+              <label className="block text-xs text-gray-400 uppercase tracking-widest font-mono mb-2">
                 Full Name
-              </dt>
-              <dd className="text-sm text-gray-100">{user?.name}</dd>
+              </label>
+              <input
+                type="text"
+                value={form.name}
+                onChange={onChange("name")}
+                autoComplete="name"
+                required
+                className="w-full rounded-lg border border-gray-700 bg-gray-800/70 px-3 py-2.5 text-sm text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-cyan-400/60 focus:ring-1 focus:ring-cyan-500/40"
+              />
             </div>
-            <div className="rounded-lg border border-gray-800 bg-gray-800/40 p-3">
-              <dt className="text-[11px] uppercase tracking-[0.2em] text-gray-500 font-mono mb-1">
+
+            <div>
+              <label className="block text-xs text-gray-400 uppercase tracking-widest font-mono mb-2">
                 Email
-              </dt>
-              <dd className="text-sm text-gray-100 break-all">{user?.email}</dd>
+              </label>
+              <input
+                type="email"
+                value={form.email}
+                onChange={onChange("email")}
+                autoComplete="email"
+                required
+                className="w-full rounded-lg border border-gray-700 bg-gray-800/70 px-3 py-2.5 text-sm text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-cyan-400/60 focus:ring-1 focus:ring-cyan-500/40"
+              />
             </div>
+
             <div className="rounded-lg border border-gray-800 bg-gray-800/40 p-3">
-              <dt className="text-[11px] uppercase tracking-[0.2em] text-gray-500 font-mono mb-1">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-gray-500 font-mono mb-1">
                 Joined
-              </dt>
-              <dd className="text-sm text-gray-100">{formatJoinDate(user?.createdAt)}</dd>
+              </p>
+              <p className="text-sm text-gray-100">{formatJoinDate(user?.createdAt)}</p>
             </div>
-          </dl>
+
+            {saveError ? <p className="text-sm text-red-300">{saveError}</p> : null}
+            {saveSuccess ? <p className="text-sm text-green-300">{saveSuccess}</p> : null}
+
+            <button
+              type="submit"
+              disabled={savingProfile}
+              className="px-5 py-2.5 rounded-lg bg-cyan-400 text-gray-950 font-bold font-mono tracking-widest uppercase text-xs hover:bg-cyan-300 transition-colors disabled:opacity-60"
+            >
+              {savingProfile ? "Saving..." : "Save Profile"}
+            </button>
+          </form>
         </section>
 
         <section className="rounded-xl border border-gray-800 bg-gray-900/65 backdrop-blur-xl p-5 md:p-6">
@@ -106,14 +177,16 @@ export default function Profile() {
                 Latest Record Time
               </p>
               <p className="text-sm text-gray-100">
-                {stats.latestCreatedAt
+                {loadingStats
+                  ? "Loading..."
+                  : stats.latestCreatedAt
                   ? new Date(stats.latestCreatedAt).toLocaleString()
                   : "No records yet"}
               </p>
             </div>
           </div>
 
-          {error ? <p className="text-sm text-red-300 mt-4">{error}</p> : null}
+          {statsError ? <p className="text-sm text-red-300 mt-4">{statsError}</p> : null}
         </section>
       </div>
     </PortalLayout>
