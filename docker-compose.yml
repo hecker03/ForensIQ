@@ -1,0 +1,72 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: forensiq-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok", "mongodb://localhost:27017/admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: forensiq-backend
+    working_dir: /app
+    ports:
+      - "5001:5000"
+    env_file:
+      - ./backend/.env.docker
+    environment:
+      PORT: "5000"
+      MONGODB_URI: mongodb://mongo:27017/forensiq
+      CLIENT_ORIGIN: http://localhost:5173
+      PUBLIC_API_URL: http://localhost:5001/api
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - type: volume
+        source: backend_node_modules
+        target: /app/node_modules
+        volume:
+          nocopy: true
+    command: >
+      sh -c "if [ ! -f node_modules/.package-lock.json ]; then npm ci; fi && npm run dev"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: forensiq-frontend
+    working_dir: /app
+    ports:
+      - "5173:5173"
+    env_file:
+      - ./frontend/.env.docker
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    depends_on:
+      backend:
+        condition: service_started
+    volumes:
+      - ./frontend:/app
+      - type: volume
+        source: frontend_node_modules
+        target: /app/node_modules
+        volume:
+          nocopy: true
+    command: >
+      sh -c "if [ ! -f node_modules/.package-lock.json ]; then npm ci; fi && npm run dev"
+
+volumes:
+  mongo_data:
+  backend_node_modules:
+  frontend_node_modules:
