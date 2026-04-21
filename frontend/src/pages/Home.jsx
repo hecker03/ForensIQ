@@ -1,69 +1,76 @@
+import { Link } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 
-function Home() {
+const features = [
+  {
+    title: "Automated Forensics Pipeline",
+    description:
+      "Upload memory dumps and get structured plugin output without manually chaining Volatility commands.",
+  },
+  {
+    title: "Multi-Method Malware Detection",
+    description:
+      "Correlate behavior rules, hashes, threat intel, and entropy signals in one workspace.",
+  },
+  {
+    title: "Steganography Signal Detection",
+    description:
+      "Surface hidden payload indicators and suspicious embedding patterns across files quickly.",
+  },
+];
+
+export default function Home() {
   return (
     <div className="relative min-h-screen w-full bg-gray-950 text-white overflow-hidden">
-      <div className="absolute inset-0 bg-linear-to-br from-cyan-500/10 via-transparent to-purple-500/10 blur-3xl"></div>
-
+      <div className="absolute inset-0 bg-linear-to-br from-cyan-500/10 via-transparent to-purple-500/10 blur-3xl pointer-events-none" />
       <div className="relative z-10 flex flex-col min-h-screen">
         <Navbar />
-        {/* Hero Section */}
-        <div className="flex flex-1 flex-col items-center justify-center text-center px-4">
-          <h1 className="text-5xl md:text-6xl font-bold text-cyan-400 mb-6 tracking-wide animate-pulse">
-            ForensIQ
-          </h1>
 
-          <p className="text-gray-400 max-w-xl mb-8 leading-relaxed">
-            Advanced Digital Forensic Intelligence Platform for tracking,
-            analyzing and investigating cyber threats in real-time.
-          </p>
-
-          <button className="px-6 py-3 bg-cyan-400 text-black font-semibold rounded-lg shadow-lg shadow-cyan-500/30 hover:scale-110 hover:shadow-cyan-400/50 transition duration-300">
-            Get Started
-          </button>
-        </div>
-
-        {/* Features Section */}
-        <div className="grid md:grid-cols-3 gap-6 px-6 md:px-16 pb-16">
-          <div className="p-6 bg-gray-900/80 backdrop-blur-lg rounded-xl border border-gray-800 hover:shadow-cyan-500/20 hover:shadow-xl hover:-translate-y-2 transition duration-300">
-            <h2 className="text-xl font-semibold text-cyan-400 mb-2">
-              Automated Forensics Pipeline
-            </h2>
-            <p className="text-gray-400">
-              No manual Volatility commands needed just feed a memory dump. Our
-              platform automatically runs all plugins, structures the results
-              into clean, analyzable dataframes, and stores them securely in
-              MongoDB.
+        <section className="px-6 md:px-12 pt-16 md:pt-24 pb-10 md:pb-14">
+          <div className="max-w-5xl mx-auto text-center">
+            <p className="text-xs uppercase tracking-[0.25em] text-cyan-400/70 font-mono mb-4">
+              Digital Forensic Intelligence
             </p>
-          </div>
-
-          <div className="p-6 bg-gray-900/80 backdrop-blur-lg rounded-xl border border-gray-800 hover:shadow-cyan-500/20 hover:shadow-xl hover:-translate-y-2 transition duration-300">
-            <h2 className="text-xl font-semibold text-cyan-400 mb-2">
-              Multi-Method Malware Detection
-            </h2>
-            <p className="text-gray-400">
-              Multi Method Malware Detection that blends hash checks, behavior
-              rules, threat intel lookups, and entropy analysis giving you
-              stronger protection in one platform.
+            <h1 className="text-4xl md:text-6xl font-bold text-cyan-400 tracking-wide leading-tight">
+              ForensIQ
+            </h1>
+            <p className="mt-5 text-gray-400 max-w-2xl mx-auto leading-relaxed">
+              Investigate memory artifacts, monitor threats, and preserve forensic records in a secure and persistent workflow.
             </p>
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
+              <Link
+                to="/signup"
+                className="px-6 py-3 rounded-lg bg-cyan-400 text-gray-950 font-semibold hover:bg-cyan-300 transition-colors"
+              >
+                Create Account
+              </Link>
+              <Link
+                to="/login"
+                className="px-6 py-3 rounded-lg border border-cyan-400/50 text-cyan-300 hover:bg-cyan-500/10 transition-colors"
+              >
+                Login
+              </Link>
+            </div>
           </div>
+        </section>
 
-          <div className="p-6 bg-gray-900/80 backdrop-blur-lg rounded-xl border border-gray-800 hover:shadow-cyan-500/20 hover:shadow-xl hover:-translate-y-2 transition duration-300">
-            <h2 className="text-xl font-semibold text-cyan-400 mb-2">
-              Steganography Detection
-            </h2>
-            <p className="text-gray-400">
-              Steganography Detection quickly uncovers hidden data in files,
-              ensuring secure communication and protecting against covert
-              information leaks.
-            </p>
+        <section className="px-6 md:px-12 pb-14 md:pb-20">
+          <div className="max-w-6xl mx-auto grid gap-5 md:grid-cols-3">
+            {features.map((feature) => (
+              <article
+                key={feature.title}
+                className="p-5 md:p-6 rounded-xl border border-gray-800 bg-gray-900/75 backdrop-blur-xl hover:border-cyan-500/40 transition-colors"
+              >
+                <h2 className="text-lg font-semibold text-cyan-300 mb-2">{feature.title}</h2>
+                <p className="text-gray-400 text-sm leading-relaxed">{feature.description}</p>
+              </article>
+            ))}
           </div>
-        </div>
+        </section>
+
+        <Footer />
       </div>
-      <Footer />
     </div>
   );
 }
-
-export default Home;
