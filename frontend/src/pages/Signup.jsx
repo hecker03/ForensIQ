@@ -64,14 +64,6 @@ export default function Signup() {
   return (
     <div className="relative min-h-screen w-full bg-gray-950 text-white overflow-hidden flex items-center justify-center px-4 py-8">
       <div className="absolute inset-0 bg-linear-to-br from-cyan-500/10 via-transparent to-purple-500/10 blur-3xl pointer-events-none" />
-      <div
-        className="absolute inset-0 opacity-[0.04] pointer-events-none"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(34,211,238,1) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,1) 1px, transparent 1px)",
-          backgroundSize: "40px 40px",
-        }}
-      />
 
       <div className="relative z-10 w-full max-w-md rounded-xl border border-gray-800 bg-gray-900/80 backdrop-blur-xl p-6 md:p-8">
         <div className="mb-6 text-center">

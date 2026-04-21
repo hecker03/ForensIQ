@@ -1,14 +1,6 @@
 import { Link, NavLink, useLocation } from "react-router-dom";
 import useAuth from "../../hooks/useAuth";
 
-const placeholderItems = [
-  "Cases",
-  "Scanner",
-  "Reports",
-  "Evidence Vault",
-  "Threat Feeds",
-];
-
 function initialsFromName(name) {
   if (!name) return "U";
 
@@ -37,14 +29,6 @@ function NavItem({ to, label }) {
   );
 }
 
-function PlaceholderItem({ label }) {
-  return (
-    <div className="rounded-lg px-4 py-2.5 font-mono text-xs tracking-widest uppercase border border-gray-800 text-gray-600">
-      {label}
-    </div>
-  );
-}
-
 export default function PortalLayout({ title, subtitle, children }) {
   const { user, logout } = useAuth();
   const location = useLocation();
@@ -53,14 +37,6 @@ export default function PortalLayout({ title, subtitle, children }) {
   return (
     <div className="relative min-h-screen w-full bg-gray-950 text-white overflow-hidden">
       <div className="absolute inset-0 bg-linear-to-br from-cyan-500/10 via-transparent to-purple-500/10 blur-3xl pointer-events-none" />
-      <div
-        className="absolute inset-0 opacity-[0.04] pointer-events-none"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(34,211,238,1) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,1) 1px, transparent 1px)",
-          backgroundSize: "44px 44px",
-        }}
-      />
 
       <div className="relative z-10 min-h-screen flex">
         <aside className="hidden md:flex md:w-72 xl:w-80 border-r border-gray-800/90 bg-gray-950/70 backdrop-blur-xl flex-col">
@@ -86,10 +62,8 @@ export default function PortalLayout({ title, subtitle, children }) {
             </p>
             <div className="space-y-2.5">
               <NavItem to="/dashboard" label="Dashboard" />
+              <NavItem to="/operator-snapshots" label="Operator Snapshots" />
               <NavItem to="/profile" label="Profile" />
-              {placeholderItems.map((item) => (
-                <PlaceholderItem key={item} label={item} />
-              ))}
             </div>
           </div>
 
@@ -177,14 +151,16 @@ export default function PortalLayout({ title, subtitle, children }) {
               >
                 Profile
               </Link>
-              {placeholderItems.map((item) => (
-                <span
-                  key={item}
-                  className="whitespace-nowrap rounded-lg px-3 py-2 font-mono text-[11px] uppercase tracking-widest border border-gray-800 text-gray-600"
-                >
-                  {item}
-                </span>
-              ))}
+              <Link
+                to="/operator-snapshots"
+                className={`whitespace-nowrap rounded-lg px-3 py-2 font-mono text-[11px] uppercase tracking-widest border ${
+                  location.pathname === "/operator-snapshots"
+                    ? "border-cyan-400/60 text-cyan-300 bg-cyan-500/10"
+                    : "border-gray-800 text-gray-400"
+                }`}
+              >
+                Snapshots
+              </Link>
             </div>
           </div>
         </div>
