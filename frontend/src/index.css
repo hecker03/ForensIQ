@@ -21,3 +21,79 @@ body {
   font-family: "Sora", "Segoe UI", "Helvetica Neue", sans-serif;
   color: #e5e7eb;
 }
+
+.min-h-screen.bg-gray-950 {
+  background-color: #030712;
+  background-image:
+    linear-gradient(rgba(34, 211, 238, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 211, 238, 0.1) 1px, transparent 1px),
+    radial-gradient(130% 125% at 8% 18%, rgba(34, 211, 238, 0.16) 0%, rgba(34, 211, 238, 0) 62%),
+    radial-gradient(125% 135% at 84% 24%, rgba(168, 85, 247, 0.14) 0%, rgba(168, 85, 247, 0) 64%),
+    radial-gradient(145% 140% at 54% 100%, rgba(56, 189, 248, 0.12) 0%, rgba(56, 189, 248, 0) 66%);
+  background-size:
+    42px 42px,
+    42px 42px,
+    180% 180%,
+    195% 195%,
+    205% 205%;
+  background-position:
+    -1px -1px,
+    -1px -1px,
+    0% 35%,
+    100% 25%,
+    50% 100%;
+  animation: aurora-drift 20s ease-in-out infinite alternate;
+}
+
+@keyframes aurora-drift {
+  0% {
+    background-size:
+      42px 42px,
+      42px 42px,
+      180% 180%,
+      195% 195%,
+      205% 205%;
+    background-position:
+      -1px -1px,
+      -1px -1px,
+      0% 35%,
+      100% 25%,
+      50% 100%;
+  }
+
+  50% {
+    background-size:
+      42px 42px,
+      42px 42px,
+      190% 190%,
+      205% 205%,
+      215% 215%;
+    background-position:
+      -1px -1px,
+      -1px -1px,
+      48% 58%,
+      62% 12%,
+      28% 72%;
+  }
+
+  100% {
+    background-size:
+      42px 42px,
+      42px 42px,
+      185% 185%,
+      200% 200%,
+      210% 210%;
+    background-position:
+      -1px -1px,
+      -1px -1px,
+      85% 42%,
+      20% 48%,
+      72% 80%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .min-h-screen.bg-gray-950 {
+    animation: none;
+  }
+}

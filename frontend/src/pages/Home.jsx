@@ -23,7 +23,14 @@ const features = [
 export default function Home() {
   return (
     <div className="relative min-h-screen w-full bg-gray-950 text-white overflow-hidden">
-      <div className="absolute inset-0 bg-linear-to-br from-cyan-500/10 via-transparent to-purple-500/10 blur-3xl pointer-events-none" />
+      <div className="absolute inset-0 tech-radial-layer pointer-events-none" />
+      <div className="absolute inset-0 tech-grid-layer pointer-events-none" />
+      <div className="absolute inset-0 tech-scanline-layer pointer-events-none" />
+      <div className="absolute inset-0 tech-orb-layer pointer-events-none" />
+      <div className="absolute inset-0 tech-scanline-layer-horizontal pointer-events-none" />
+      <div className="absolute inset-0 tech-scanline-layer-diagonal pointer-events-none" />
+      <div className="absolute inset-0 tech-pulse-layer pointer-events-none" />
+      <div className="absolute inset-0 tech-pulse-layer-alt pointer-events-none" />
       <div className="relative z-10 flex flex-col min-h-screen">
         <Navbar />
 

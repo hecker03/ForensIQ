@@ -37,14 +37,6 @@ export default function PortalLayout({ title, subtitle, children }) {
   return (
     <div className="relative min-h-screen w-full bg-gray-950 text-white overflow-hidden">
       <div className="absolute inset-0 bg-linear-to-br from-cyan-500/10 via-transparent to-purple-500/10 blur-3xl pointer-events-none" />
-      <div
-        className="absolute inset-0 opacity-[0.04] pointer-events-none"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(34,211,238,1) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,1) 1px, transparent 1px)",
-          backgroundSize: "44px 44px",
-        }}
-      />
 
       <div className="relative z-10 min-h-screen flex">
         <aside className="hidden md:flex md:w-72 xl:w-80 border-r border-gray-800/90 bg-gray-950/70 backdrop-blur-xl flex-col">
