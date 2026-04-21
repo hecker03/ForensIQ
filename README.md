@@ -14,6 +14,8 @@ Digital forensic web application with React frontend and Express + MongoDB backe
 ## What Is Done
 - Dockerized the development stack using Docker Compose (`frontend` + `backend` + `mongo`).
 - Added dev Dockerfiles for frontend and backend.
+- Added production Dockerfiles for AWS deployment.
+- Added Amplify build config for the frontend.
 - Added `.dockerignore` files for clean image builds.
 - Added Docker env files for container-specific values.
 - Enabled reliable hot reload in containers:
@@ -58,4 +60,36 @@ docker compose logs -f
 
 # Follow only backend logs
 docker compose logs -f backend
+```
+
+## AWS / Amplify Deployment
+
+### Frontend on Amplify
+1. Connect the repo to AWS Amplify.
+2. Use the root [amplify.yml](amplify.yml) build spec.
+3. Set a frontend environment variable in Amplify:
+  - `VITE_API_URL=https://your-backend-domain/api`
+4. Add a single-page-app rewrite rule in Amplify so React Router routes like `/login` and `/dashboard` resolve to `index.html`.
+
+### Backend on AWS
+The backend is ready to run as a container with [backend/Dockerfile](backend/Dockerfile).
+
+Set these environment variables in your AWS runtime:
+- `PORT=5000`
+- `MONGODB_URI=...`
+- `JWT_SECRET=...`
+- `CLIENT_ORIGIN=https://your-amplify-domain.amplifyapp.com`
+- `PUBLIC_API_URL=https://your-backend-domain/api`
+
+### Build locally for production
+Frontend:
+```bash
+cd frontend
+npm ci
+npm run build
+```
+
+Backend container image:
+```bash
+docker build -t forensiq-backend -f backend/Dockerfile backend
 ```
