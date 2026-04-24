@@ -33,8 +33,11 @@ KNOWN_PARENTS_WIN7 = {
     "wmiapSrv.exe":     {"services.exe"},
     "wmiprvse.exe":     {"svchost.exe"},
     "searchindexer.exe":{"services.exe"},
-    "searchprotocolhost.exe": {"searchindexer.exe"},
-    "searchfilterhost.exe":   {"searchindexer.exe"},
+    "searchindexer.":   {"services.exe"},    # Volatility truncated version
+    "searchprotocolhost.exe": {"searchindexer.exe", "searchindexer."},
+    "searchprotocol":   {"searchindexer.exe", "searchindexer."},  # truncated
+    "searchfilterhost.exe":   {"searchindexer.exe", "searchindexer."},
+    "searchfilterho":   {"searchindexer.exe", "searchindexer."},  # truncated
     "wmpnetwk.exe":     {"services.exe"},
     "vm3dservice.exe":  {"services.exe", "explorer.exe"},
     "vmtoolsd.exe":     {"services.exe", "explorer.exe"},
@@ -57,14 +60,17 @@ KNOWN_PARENTS_WIN10 = {
     "taskhostw.exe":    {"services.exe", "svchost.exe"},
     "dwm.exe":          {"winlogon.exe", "svchost.exe"},
     "fontdrvhost.exe":  {"wininit.exe", "winlogon.exe"},
+    "fontdrvhost.ex":   {"wininit.exe", "winlogon.exe"},  # truncated
     "sihost.exe":       {"svchost.exe"},
     "ctfmon.exe":       {"svchost.exe"},
     "audiodg.exe":      {"svchost.exe"},
     "dllhost.exe":      {"svchost.exe", "services.exe"},
     "msdtc.exe":        {"services.exe"},
     "searchindexer.exe":{"services.exe"},
+    "searchindexer.":   {"services.exe"},    # Volatility truncated version
     "wmiprvse.exe":     {"svchost.exe"},
     "runtimebroker.exe":{"svchost.exe"},
+    "runtimebroker.":   {"svchost.exe"},     # truncated
     "searchapp.exe":    {"svchost.exe"},
     "startmenuexperiencehost.exe": {"svchost.exe"},
 }
@@ -108,22 +114,33 @@ def add_pattern(pid, ppid, name, pattern_type):
 # DETECT WINDOWS VERSION
 # ─────────────────────────────────────────────
 def detect_os(rows):
-    """Detect Win7 vs Win10 based on process list."""
+    """Detect Win7 vs Win10 based on process list.
+    Handles Volatility truncated names (fontdrvhost.ex not fontdrvhost.exe)
+    """
     global os_version
     names = {r["name"].lower() for r in rows}
 
+    # Win7 indicator — lsm.exe only exists in Win7
     if "lsm.exe" in names:
         os_version = "win7"
         print("  → Detected: Windows 7")
         return KNOWN_PARENTS_WIN7
 
-    elif "fontdrvhost.exe" in names or "runtimebroker.exe" in names:
+    # Win10 indicators — check both full and truncated names
+    win10_indicators = {
+        "fontdrvhost.exe", "fontdrvhost.ex",  # truncated by Volatility
+        "runtimebroker.exe", "runtimebroker.",
+        "memcompression",                      # Win10 memory compression
+        "sihost.exe",                          # Shell Infrastructure Host
+        "startmenuexperiencehost.exe",
+    }
+    if names & win10_indicators:
         os_version = "win10"
         print("  → Detected: Windows 10/11")
         return KNOWN_PARENTS_WIN10
 
     else:
-        os_version = "win7"  # default to win7 rules (more permissive)
+        os_version = "win7"
         print("  → OS unknown — defaulting to Win7 rules")
         return KNOWN_PARENTS_WIN7
 
@@ -186,21 +203,34 @@ def run_pslist(memfile):
 
         # ── Rule 1: Orphan process
         # Skip PPID=0 (normal for System/smss)
-        # Skip if parent simply exited before dump (common in Win7)
+        # Skip boot processes — smss.exe exits after spawning them
+        # so their parent (smss) won't appear in pslist — this is normal
         boot_procs = {
             "system", "registry", "smss.exe", "csrss.exe",
             "wininit.exe", "winlogon.exe", "services.exe",
-            "lsass.exe", "lsm.exe"
+            "lsass.exe", "lsm.exe", "userinit.exe",
+            # Browsers / apps often launched standalone — parent exits
+            "brave.exe", "chrome.exe", "firefox.exe",
+            "microsoftedgeu",   # Edge updater — truncated
+            "microsoftedgeupdate.exe",
         }
         if ppid != 0 and ppid not in all_pids and lname not in boot_procs:
             flag(pid, ppid, name, "orphan_process_parent_not_in_list", "HIGH")
             add_pattern(pid, ppid, name, "orphan")
 
         # ── Rule 2: Wrong parent for known process
+        # Allow empty parent for boot processes — smss exits before dump
+        # so csrss/wininit/winlogon will show empty parent — this is normal
+        BOOT_EMPTY_PARENT_OK = {
+            "csrss.exe", "wininit.exe", "winlogon.exe",
+            "services.exe", "lsass.exe", "lsm.exe",
+        }
         if lname in KNOWN_PARENTS:
             allowed = KNOWN_PARENTS[lname]
-            # Empty string means "no parent / boot process" — skip those
-            if "" not in allowed and parent_name not in allowed and ppid != 0:
+            # If parent is empty AND process is a boot process → skip
+            if parent_name == "" and lname in BOOT_EMPTY_PARENT_OK:
+                pass  # normal — smss exited before dump
+            elif "" not in allowed and parent_name not in allowed and ppid != 0:
                 flag(pid, ppid, name,
                      f"wrong_parent: got={parent_name!r} expected_one_of={allowed}",
                      "HIGH")
@@ -214,8 +244,10 @@ def run_pslist(memfile):
             add_pattern(pid, ppid, name, "svchost_wrong_parent")
 
         # ── Rule 4: System process in user session (session 1)
+        # Note: csrss.exe excluded — Win7 runs TWO csrss instances:
+        #       one for session 0, one for session 1 — both legitimate
         session_sensitive = {
-            "lsass.exe", "services.exe", "csrss.exe",
+            "lsass.exe", "services.exe",
             "wininit.exe", "lsm.exe", "smss.exe"
         }
         if lname in session_sensitive and str(row["session"]) == "1":
@@ -268,6 +300,38 @@ def run_pslist(memfile):
         if lname in BROWSERS:
             add_pattern(pid, ppid, name, "browser")
 
+        # ── Rule 10: Typosquatting — names that look like system processes
+        # Attacker swaps letters to mimic legitimate names
+        TYPOSQUATS = {
+            "scvhost.exe":   "svchost.exe",   # s-C-vhost vs s-V-chost
+            "svhost.exe":    "svchost.exe",   # missing c
+            "svchosl.exe":   "svchost.exe",   # l instead of t
+            "lsasss.exe":    "lsass.exe",     # extra s
+            "csrss_.exe":    "csrss.exe",     # underscore
+            "explore.exe":   "explorer.exe",  # missing r
+            "iexplore.exe":  "iexplore.exe",  # legitimate — skip
+        }
+        if lname in TYPOSQUATS:
+            flag(pid, ppid, name,
+                 f"typosquatting: {name} looks like {TYPOSQUATS[lname]}",
+                 "CRITICAL")
+            add_pattern(pid, ppid, name, "typosquatting")
+
+        # ── Rule 11: Double extension — file.exe.exe pattern
+        # Volatility truncates to 15 chars so svchost.exe.exe → svchost.exe.ex
+        if lname.endswith(".exe.ex") or lname.count(".exe") > 1:
+            flag(pid, ppid, name,
+                 f"double_extension_malware: {name}",
+                 "CRITICAL")
+            add_pattern(pid, ppid, name, "double_extension")
+
+        # ── Rule 12: Screensaver (.scr) running as process — often malware
+        if lname.endswith(".scr"):
+            flag(pid, ppid, name,
+                 f"screensaver_executable_suspicious: {name}",
+                 "HIGH")
+            add_pattern(pid, ppid, name, "scr_executable")
+
     df = pd.DataFrame(rows)
     print(f"  → {len(df)} processes parsed")
     return df, pid_to_name, KNOWN_PARENTS
@@ -294,14 +358,50 @@ def run_psscan(memfile, pslist_df):
 
     pslist_pids = set(pslist_df["pid"].tolist())
 
-    # In psscan but NOT in pslist = hidden = rootkit
+    # Processes that legitimately appear in psscan but not pslist
+    # because they already terminated before dump was taken
+    LEGITIMATE_TERMINATED = {
+        "searchfilterho", "searchprotocol", "searchindexer",
+        "wuauclt.exe",    # Windows Update — terminates after update
+        "am_delta.exe",   # Windows Defender signature update
+        "mpsigstub.exe",  # Windows Defender stub
+        "wudfhost.exe",   # Windows Driver Foundation — terminates
+        "wmiadap.exe",    # WMI performance adapter — terminates
+        "runtimebroker.", # Runtime Broker — multiple short lived instances
+        "ftk",            # FTK Imager — used to capture the dump itself
+        "ftk imager",
+        "dumpit.exe",     # DumpIt — memory capture tool
+        "winpmem",        # WinPmem — memory capture tool
+    }
+
+    # In psscan but NOT in pslist = potentially hidden
     hidden_pids = psscan_pids - pslist_pids
     for pid in hidden_pids:
-        name = psscan_names.get(pid, "UNKNOWN")
+        name     = psscan_names.get(pid, "UNKNOWN")
+        namelower= name.lower()
+
+        # Skip known legitimate terminated processes
+        is_legit_terminated = any(
+            namelower.startswith(t) or namelower == t
+            for t in LEGITIMATE_TERMINATED
+        )
+        if is_legit_terminated:
+            continue
+
+        # Flag as hidden/rootkit
         flag(pid, None, name, "hidden_process_rootkit", "CRITICAL")
         add_pattern(pid, None, name, "hidden_process")
 
-    print(f"  → pslist: {len(pslist_pids)} | psscan: {len(psscan_pids)} | hidden: {len(hidden_pids)}")
+    actual_hidden = sum(
+        1 for pid in hidden_pids
+        if not any(
+            psscan_names.get(pid,"").lower().startswith(t)
+            for t in LEGITIMATE_TERMINATED
+        )
+    )
+    print(f"  → pslist: {len(pslist_pids)} | psscan: {len(psscan_pids)} | "
+          f"terminated: {len(hidden_pids)-actual_hidden} | "
+          f"truly hidden: {actual_hidden}")
     return psscan_pids
 
 
@@ -353,10 +453,47 @@ def run_cmdline(memfile):
                 break
 
         # Check path — running from suspicious location
-        suspicious_paths = ["\\temp\\", "\\appdata\\", "\\downloads\\",
+        # Whitelist: processes that legitimately use temp/appdata paths
+        # Note: Volatility truncates long names so we check startswith too
+        TEMP_PATH_WHITELIST = {
+            "searchprotocolhost.exe", "searchfilterhost.exe",
+            "searchindexer.exe", "msiexec.exe",
+            "trustedinstaller.exe", "tiworker.exe", "wuauclt.exe",
+            # AppData whitelist
+            "onedrive.exe", "teams.exe", "slack.exe",
+            "discord.exe", "spotify.exe", "microsoftedgeupdate.exe",
+            # Memory capture tools — legitimately on desktop
+            "dumpit.exe", "winpmem.exe", "ftk imager.exe",
+            "ftk", "rammap.exe", "memorydump.exe",
+        }
+        # Truncated prefixes
+        TEMP_PATH_WHITELIST_PREFIX = (
+            "searchprotocol",   # SearchProtocolHost.exe
+            "searchfilterho",   # SearchFilterHost.exe
+            "searchindexer",    # SearchIndexer.exe
+            "trustedinstall",   # TrustedInstaller.exe
+            "onedrive",         # OneDrive.exe and variants
+            "microsoftedge",    # Edge updater
+        )
+        suspicious_paths = ["\\temp\\", "\\downloads\\",
                             "\\desktop\\", "\\public\\", "%temp%"]
+        # Note: \appdata\ removed from suspicious — too many legit apps use it
+        # We only flag appdata if combined with other suspicious indicators
+        appdata_paths = ["\\appdata\\roaming\\", "\\appdata\\local\\temp\\"]
+
+        proc_lower = name.lower()
+        is_whitelisted = (
+            proc_lower in TEMP_PATH_WHITELIST or
+            proc_lower.startswith(TEMP_PATH_WHITELIST_PREFIX)
+        )
         for sp in suspicious_paths:
-            if sp in cl_low:
+            if sp in cl_low and not is_whitelisted:
+                flag(pid, None, name, f"running_from_suspicious_path: {sp}", "HIGH")
+                add_pattern(pid, None, name, "suspicious_path")
+                break
+        # Only flag appdata\local\temp — not all appdata
+        for sp in appdata_paths:
+            if sp in cl_low and not is_whitelisted:
                 flag(pid, None, name, f"running_from_suspicious_path: {sp}", "HIGH")
                 add_pattern(pid, None, name, "suspicious_path")
                 break
@@ -425,7 +562,10 @@ def run_netscan(memfile):
                 foreign_addr in ("0.0.0.0", "*", "-", "::") or
                 foreign_addr.startswith("127.")      or
                 foreign_addr.startswith("fe80:")     or
-                foreign_addr == "::1"
+                foreign_addr.startswith("::")        or
+                foreign_addr == "::1"                or
+                "ffff" in foreign_addr               or  # Windows internal IPv6 addresses
+                foreign_addr == "-"                     # unknown/closed connections
             )
             if not is_private and foreign_addr not in ("*", "-") and state == "CLOSED":
                 flag(pid, None, proc,
@@ -458,14 +598,41 @@ def run_netscan(memfile):
 # ─────────────────────────────────────────────
 def run_malfind(memfile):
     print("\n[+] Running malfind...")
-    cmd = ["vol", "-f", memfile, "windows.malfind"]
+    cmd = ["vol", "-f", memfile, "windows.malware.malfind"]
     result = subprocess.run(cmd, capture_output=True, text=True)
 
+    # Fallback to old plugin path if new one fails
+    if result.returncode != 0 or not result.stdout.strip():
+        cmd = ["vol", "-f", memfile, "windows.malfind"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
     rows = []
-    # Track repeated shellcode patterns
     shellcode_signatures = {}
 
+    # Win10 processes known to legitimately have RWX memory
+    # due to JIT compilation, antivirus scanning, memory management
+    # Flagging these creates too many false positives
+    MALFIND_WHITELIST = {
+        "msmpeng.exe",      # Windows Defender — uses RWX for AV scanning
+        "mssense.exe",      # Windows Defender ATP
+        "nissrv.exe",       # Windows Defender Network Inspection
+        "searchapp.exe",    # Windows Search — JIT compiled
+        "searchui.exe",     # Windows Search UI
+        "smartscreen.ex",   # SmartScreen — security scanning (truncated)
+        "smartscreen.exe",  # SmartScreen full name
+        "onedrive.exe",     # OneDrive sync engine
+        "microsoftedge",    # Edge browser processes
+        "svchost.exe",      # Only flag if combined with other indicators
+    }
+
     for line in result.stdout.splitlines():
+        # Skip headers, warnings, empty lines
+        if not line.strip():
+            continue
+        if line.startswith("PID") or "FutureWarning" in line or \
+           "deprecated" in line.lower() or "warning" in line.lower():
+            continue
+
         parts = line.split()
         if not parts or not parts[0].isdigit():
             continue
@@ -473,13 +640,28 @@ def run_malfind(memfile):
             continue
 
         try:
-            pid        = int(parts[0])
-            name       = parts[1]
-            address    = parts[2]
-            protection = parts[4] if len(parts) > 4 else ""
+            pid  = int(parts[0])
+            name = parts[1]
+
+            # Find protection field — look for PAGE_ pattern
+            protection = ""
+            for part in parts:
+                if part.startswith("PAGE_"):
+                    protection = part
+                    break
+
+            if not protection:
+                continue
 
             if "EXECUTE_READWRITE" not in protection.upper():
                 continue
+
+            # Skip whitelisted processes — known legitimate RWX users
+            if name.lower() in MALFIND_WHITELIST:
+                continue
+
+            # Get address — usually parts[2]
+            address = parts[2] if len(parts) > 2 else "unknown"
 
             rows.append({
                 "pid":        pid,
@@ -493,7 +675,6 @@ def run_malfind(memfile):
                  "CRITICAL")
             add_pattern(pid, None, name, "malfind_rwx")
 
-            # Track which PIDs have injected code
             if name.lower() not in shellcode_signatures:
                 shellcode_signatures[name.lower()] = []
             shellcode_signatures[name.lower()].append(pid)
@@ -501,18 +682,17 @@ def run_malfind(memfile):
         except (IndexError, ValueError):
             continue
 
-    # Check for same process name injected in multiple PIDs
-    # = widespread injection / worm behavior
+    # Widespread injection check
     for proc_name, pids in shellcode_signatures.items():
         if len(pids) > 1:
             for pid in pids:
                 flag(pid, None, proc_name,
-                     f"same_shellcode_in_multiple_{proc_name}_instances_count={len(pids)}",
+                     f"same_shellcode_in_multiple_{proc_name}_count={len(pids)}",
                      "CRITICAL")
                 add_pattern(pid, None, proc_name, "widespread_injection")
 
     df = pd.DataFrame(rows) if rows else pd.DataFrame(
-        columns=["pid","name","address","protection"])
+        columns=["pid", "name", "address", "protection"])
     print(f"  → {len(df)} RWX memory regions found")
     return df
 
@@ -609,6 +789,13 @@ def build_features(pslist_df, cmdline_df, netscan_df,
             "suspicious_path":       int("suspicious_path" in pid_patterns),
             "wrong_session":         int("wrong_session" in pid_patterns),
             "zero_threads":          int("zero_threads" in pid_patterns),
+            "double_extension":      int("double_extension" in pid_patterns),
+            "typosquatting":         int("typosquatting" in pid_patterns),
+            "scr_executable":        int("scr_executable" in pid_patterns),
+            "office_shell_spawn":    int("office_shell_spawn" in pid_patterns),
+            "browser_shell_spawn":   int("browser_shell_spawn" in pid_patterns),
+            "multiple_instances":    int("multiple_instances" in pid_patterns),
+            "system_network":        int("system_network" in pid_patterns),
 
             # Overall suspicion score
             "severity_score":        sev_score,
@@ -650,17 +837,153 @@ def save_all(pslist_df, cmdline_df, netscan_df,
     print(f"   malfind.csv features.csv")
     print(f"   suspicious.csv  patterns.csv")
 
+from datetime import datetime, timezone
+import json
+
+def save_to_mongodb(
+    investigation_id,
+    memfile,
+    pslist_df,
+    cmdline_df,
+    netscan_df,
+    malfind_df,
+    features_df,
+    outdir="."
+):
+    """
+    Saves all pipeline output in MongoDB-ready format.
+    Returns a single investigation document.
+    """
+    import os
+    os.makedirs(outdir, exist_ok=True)  # create output dir if not exists
+
+    timestamp = datetime.now(timezone.utc).isoformat()  # timezone-aware UTC
+
+    # ── 1. Investigation document ──────────────────
+    investigation = {
+        "_id":            investigation_id,
+        "memfile":        memfile,
+        "os_version":     os_version,
+        "analyzed_at":    timestamp,
+        "status":         "completed",
+        "total_processes": len(pslist_df),
+        "total_suspicious": len(suspicious),
+        "total_patterns":  len(patterns),
+        "summary": {
+            "critical": len([s for s in suspicious if s["severity"] == "CRITICAL"]),
+            "high":     len([s for s in suspicious if s["severity"] == "HIGH"]),
+            "medium":   len([s for s in suspicious if s["severity"] == "MEDIUM"]),
+            "low":      len([s for s in suspicious if s["severity"] == "LOW"]),
+        }
+    }
+
+    # ── 2. Processes ───────────────────────────────
+    processes = []
+    for _, row in pslist_df.iterrows():
+        processes.append({
+            "investigation_id": investigation_id,
+            "pid":    int(row["pid"]),
+            "ppid":   int(row["ppid"]),
+            "name":   row["name"],
+            "threads":int(row["threads"]),
+            "session":str(row["session"]),
+            "wow64":  bool(row["wow64"]),
+            "has_exit":bool(row["has_exit"]),
+        })
+
+    # ── 3. Network connections ─────────────────────
+    network = []
+    if not netscan_df.empty:
+        for _, row in netscan_df.iterrows():
+            network.append({
+                "investigation_id": investigation_id,
+                "proto":        row.get("proto", ""),
+                "local_addr":   row.get("local_addr", ""),
+                "local_port":   str(row.get("local_port", "")),
+                "foreign_addr": row.get("foreign_addr", ""),
+                "foreign_port": str(row.get("foreign_port", "")),
+                "state":        row.get("state", ""),
+                "pid":          int(row["pid"]) if pd.notna(row.get("pid")) else None,
+                "process":      row.get("process", ""),
+            })
+
+    # ── 4. Malfind ─────────────────────────────────
+    injections = []
+    if not malfind_df.empty:
+        for _, row in malfind_df.iterrows():
+            injections.append({
+                "investigation_id": investigation_id,
+                "pid":        int(row["pid"]),
+                "name":       row["name"],
+                "address":    row["address"],
+                "protection": row["protection"],
+            })
+
+    # ── 5. Suspicious flags ────────────────────────
+    sus_docs = []
+    for s in suspicious:
+        sus_docs.append({
+            "investigation_id": investigation_id,
+            "pid":      s["pid"],
+            "name":     s["name"],
+            "reason":   s["reason"],
+            "severity": s["severity"],
+        })
+
+    # ── 6. ML Features ─────────────────────────────
+    feature_docs = []
+    if not features_df.empty:
+        for _, row in features_df.iterrows():
+            doc = row.to_dict()
+            doc["investigation_id"] = investigation_id
+            # label = -1 means unlabelled (fill manually later)
+            feature_docs.append(doc)
+
+    # ── 7. Save as JSON files (MongoDB importable) ─
+    output = {
+        "investigation": investigation,
+        "processes":     processes,
+        "network":       network,
+        "injections":    injections,
+        "suspicious":    sus_docs,
+        "features":      feature_docs,
+    }
+
+    # Save as one JSON file per investigation
+    json_path = f"{outdir}/{investigation_id}_output.json"
+    with open(json_path, "w") as f:
+        json.dump(output, f, indent=2, default=str)
+
+    print(f"\n✅ MongoDB-ready JSON saved: {json_path}")
+
+    # Also save CSVs for ML training
+    features_df.to_csv(f"{outdir}/{investigation_id}_features.csv", index=False)
+    pd.DataFrame(sus_docs).to_csv(f"{outdir}/{investigation_id}_suspicious.csv", index=False)
+
+    return output
+
 
 # ─────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
     import sys
+    import uuid
+
     memfile = sys.argv[1] if len(sys.argv) > 1 else "mem.mem"
+
+    # Reset globals — important if running multiple dumps in same session
+    suspicious.clear()
+    patterns.clear()
+    os_version = "unknown"
+
+    # Generate unique ID for this investigation
+    investigation_id = str(uuid.uuid4())[:8]
 
     print(f"\n{'='*55}")
     print(f"  ForensIQ Pipeline")
-    print(f"  File: {memfile}")
+    print(f"  File:  {memfile}")
+    print(f"  ID:    {investigation_id}")
     print(f"{'='*55}")
 
     pslist_df, pid_to_name, KNOWN_PARENTS = run_pslist(memfile)
@@ -676,23 +999,31 @@ if __name__ == "__main__":
         malfind_df, psscan_pids, external_ips
     )
 
-    save_all(pslist_df, cmdline_df, netscan_df,
-             malfind_df, features_df)
+    # Save MongoDB-ready output
+    output = save_to_mongodb(
+        investigation_id=investigation_id,
+        memfile=memfile,
+        pslist_df=pslist_df,
+        cmdline_df=cmdline_df,
+        netscan_df=netscan_df,
+        malfind_df=malfind_df,
+        features_df=features_df,
+        outdir="./output"
+    )
 
     print(f"\n{'='*55}")
-    print(f"  SUMMARY — {memfile}")
+    print(f"  SUMMARY")
     print(f"{'='*55}")
+    print(f"  Investigation ID:   {investigation_id}")
     print(f"  OS Version:         {os_version}")
     print(f"  Total processes:    {len(pslist_df)}")
     print(f"  Suspicious flags:   {len(suspicious)}")
-    print(f"  Patterns detected:  {len(patterns)}")
-    print(f"  External IPs found: {sum(len(v) for v in external_ips.values())}")
     print(f"  ML features ready:  {features_df.shape}")
 
+    # Show critical findings
     if suspicious:
-        print(f"\n  🚨 SUSPICIOUS PROCESSES:")
-        sus_df = pd.DataFrame(suspicious).drop_duplicates()
-        # Show only CRITICAL and HIGH
-        high = sus_df[sus_df["severity"].isin(["CRITICAL", "HIGH"])]
+        print(f"\n  🚨 CRITICAL / HIGH FINDINGS:")
+        sus_df = pd.DataFrame(suspicious)
+        high   = sus_df[sus_df["severity"].isin(["CRITICAL","HIGH"])]
         if not high.empty:
-            print(high[["pid","name","reason","severity"]].to_string(index=False))
+            print(high[["pid","name","severity","reason"]].to_string(index=False))
