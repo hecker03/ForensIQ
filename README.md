@@ -93,3 +93,5 @@ Backend container image:
 ```bash
 docker build -t forensiq-backend -f backend/Dockerfile backend
 ```
+
+https://docs.google.com/document/d/10isK52p62umktyicacR8GQcRAsorc19I/edit?usp=sharing&ouid=118237286114732757274&rtpof=true&sd=true
