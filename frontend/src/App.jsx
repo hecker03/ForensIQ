@@ -3,6 +3,7 @@ import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
+import Analytics from "./pages/Analytics";
 import Profile from "./pages/Profile";
 import OperatorSnapshots from "./pages/OperatorSnapshots";
 import Notfound from "./pages/Notfound";
@@ -37,6 +38,7 @@ function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="/analytics" element={<Analytics />} />
       <Route
         path="/profile"
         element={

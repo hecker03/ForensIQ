@@ -62,6 +62,7 @@ export default function PortalLayout({ title, subtitle, children }) {
             </p>
             <div className="space-y-2.5">
               <NavItem to="/dashboard" label="Dashboard" />
+              <NavItem to="/analytics" label="Analytics" />
               <NavItem to="/operator-snapshots" label="Operator Snapshots" />
               <NavItem to="/profile" label="Profile" />
             </div>
@@ -150,6 +151,16 @@ export default function PortalLayout({ title, subtitle, children }) {
                 }`}
               >
                 Profile
+              </Link>
+              <Link
+                to="/analytics"
+                className={`whitespace-nowrap rounded-lg px-3 py-2 font-mono text-[11px] uppercase tracking-widest border ${
+                  location.pathname === "/analytics"
+                    ? "border-cyan-400/60 text-cyan-300 bg-cyan-500/10"
+                    : "border-gray-800 text-gray-400"
+                }`}
+              >
+                Analytics
               </Link>
               <Link
                 to="/operator-snapshots"

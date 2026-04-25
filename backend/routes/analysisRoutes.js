@@ -1,69 +1,17 @@
+import crypto from "node:crypto";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import express from "express";
-import { requireAuth } from "../middleware/auth.js";
+import AnalysisOutput from "../models/AnalysisOutput.js";
+import { attachAuthIfPresent, requireAuth } from "../middleware/auth.js";
+import { executePythonMemoryPipeline } from "../services/pythonPipeline.js";
 
 const router = express.Router();
 
 const MEMORY_ANALYSIS_CATEGORY = "Memory Analysis";
-
-const PROCESS_SIGNATURES = [
-  {
-    processName: "powershell.exe",
-    indicators: ["powershell", "encodedcommand", "-enc"],
-    reason: "Encoded PowerShell execution pattern detected",
-  },
-  {
-    processName: "cmd.exe",
-    indicators: ["cmd.exe", " /c ", " /k "],
-    reason: "Command shell execution chain identified",
-  },
-  {
-    processName: "rundll32.exe",
-    indicators: ["rundll32", ".dll"],
-    reason: "Suspicious DLL execution pattern via rundll32",
-  },
-  {
-    processName: "wmic.exe",
-    indicators: ["wmic", "process call create"],
-    reason: "WMI-based process creation activity detected",
-  },
-  {
-    processName: "procdump.exe",
-    indicators: ["procdump", "-ma", "lsass"],
-    reason: "Potential credential dumping tooling observed",
-  },
-  {
-    processName: "mimikatz.exe",
-    indicators: ["mimikatz", "sekurlsa", "logonpasswords"],
-    reason: "Credential theft signature matched",
-  },
-  {
-    processName: "svchost.exe",
-    indicators: ["svchost", "syn_sent", "beacon"],
-    reason: "Possible beaconing from service host context",
-  },
-  {
-    processName: "unknown_process",
-    indicators: ["malfind", "page_execute_readwrite", "inject"],
-    reason: "Memory injection indicators detected",
-  },
-];
-
-const KEYWORD_SIGNALS = [
-  { token: "lsass", weight: 18 },
-  { token: "mimikatz", weight: 22 },
-  { token: "sekurlsa", weight: 18 },
-  { token: "procdump", weight: 14 },
-  { token: "encodedcommand", weight: 14 },
-  { token: "powershell", weight: 10 },
-  { token: "rundll32", weight: 10 },
-  { token: "inject", weight: 12 },
-  { token: "malfind", weight: 16 },
-  { token: "c2", weight: 12 },
-  { token: "beacon", weight: 12 },
-  { token: "syn_sent", weight: 8 },
-  { token: "credential", weight: 10 },
-  { token: "page_execute_readwrite", weight: 12 },
-];
+const MAX_HISTORY_LIMIT = 50;
+const DEFAULT_HISTORY_LIMIT = 10;
 
 const rawDumpParser = express.raw({
   type: "application/octet-stream",
@@ -80,242 +28,240 @@ function safelyDecode(value) {
   }
 }
 
-function extractPrintableStrings(buffer) {
-  const sampleSize = Math.min(buffer.length, 8 * 1024 * 1024);
-  const sample = buffer.subarray(0, sampleSize).toString("latin1");
-  const matches = sample.match(/[\x20-\x7E]{4,}/g) || [];
-  return matches.slice(0, 20000);
+function sanitizeFileName(input) {
+  const decoded = safelyDecode(input).trim();
+  const fallback = "memory-dump.bin";
+  const baseName = path.basename(decoded || fallback);
+  const normalized = baseName.replace(/[^\w.\-+]/g, "_");
+  return normalized || fallback;
 }
 
-function calculateShannonEntropy(buffer) {
-  if (!buffer.length) return 0;
-
-  const frequencies = new Array(256).fill(0);
-
-  for (const byte of buffer) {
-    frequencies[byte] += 1;
-  }
-
-  let entropy = 0;
-
-  for (const count of frequencies) {
-    if (!count) continue;
-    const probability = count / buffer.length;
-    entropy -= probability * Math.log2(probability);
-  }
-
-  return Number(entropy.toFixed(3));
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
 }
 
-function extractPid(line) {
-  const pidMatch =
-    line.match(/\bpid(?:\s*[:=]\s*|\s+)(\d{2,6})\b/i) || line.match(/\b(\d{2,6})\b/);
-
-  return pidMatch ? Number(pidMatch[1]) : "N/A";
-}
-
-function extractSuspiciousProcesses(printableStrings) {
-  const suspiciousProcesses = [];
-  const seen = new Set();
-
-  for (const line of printableStrings) {
-    const normalizedLine = line.toLowerCase();
-
-    for (const signature of PROCESS_SIGNATURES) {
-      const isMatch = signature.indicators.some((indicator) => normalizedLine.includes(indicator));
-
-      if (!isMatch) continue;
-
-      const pid = extractPid(line);
-      const key = `${signature.processName}|${pid}|${signature.reason}`;
-
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      suspiciousProcesses.push({
-        processName: signature.processName,
-        pid,
-        reason: signature.reason,
-      });
-
-      if (suspiciousProcesses.length >= 12) {
-        return suspiciousProcesses;
-      }
-    }
-  }
-
-  return suspiciousProcesses;
-}
-
-function computeSignalScore(corpus) {
-  let score = 0;
-  const matchedSignals = [];
-
-  for (const signal of KEYWORD_SIGNALS) {
-    if (!corpus.includes(signal.token)) continue;
-
-    score += signal.weight;
-    matchedSignals.push(signal.token);
-  }
-
-  return { score, matchedSignals };
-}
-
-function severityFromScore(score) {
-  if (score >= 80) return "Critical";
-  if (score >= 60) return "High";
-  if (score >= 35) return "Medium";
-  return "Low";
-}
-
-function inferRootCause({ corpus, matchedSignals, suspiciousProcesses, entropy }) {
-  const hasSignal = (token) => corpus.includes(token) || matchedSignals.includes(token);
-
-  if (hasSignal("lsass") || hasSignal("mimikatz") || hasSignal("sekurlsa") || hasSignal("procdump")) {
-    return "Probable credential dumping behavior targeting LSASS memory structures.";
-  }
-
-  if (hasSignal("encodedcommand") || hasSignal("powershell") || hasSignal("-enc")) {
-    return "Likely script-driven execution chain with encoded PowerShell payload staging.";
-  }
-
-  if (hasSignal("beacon") || hasSignal("c2") || hasSignal("syn_sent")) {
-    return "Potential command-and-control beaconing from memory-resident process context.";
-  }
-
-  if (hasSignal("inject") || hasSignal("malfind") || hasSignal("page_execute_readwrite")) {
-    return "Possible code injection activity with executable memory region anomalies.";
-  }
-
-  if (suspiciousProcesses.length > 0) {
-    return "Anomalous process execution patterns indicate suspicious in-memory activity.";
-  }
-
-  if (entropy >= 7.7) {
-    return "High-entropy memory regions suggest packed or obfuscated payload artifacts.";
-  }
-
-  return "Low-confidence anomaly profile; manual triage is recommended for confirmation.";
-}
-
-function buildRecommendedActions({ severityLevel, rootCause, corpus }) {
-  const actions = [
-    "Isolate the host from network access and preserve the current volatile state.",
-    "Acquire and archive a full forensic memory image with chain-of-custody metadata.",
-  ];
-
-  if (rootCause.toLowerCase().includes("credential")) {
-    actions.push("Reset and rotate potentially exposed credentials for the affected user and service accounts.");
-  }
-
-  if (corpus.includes("powershell") || corpus.includes("encodedcommand")) {
-    actions.push("Decode and review PowerShell command lines and block malicious script hashes in EDR policies.");
-  }
-
-  if (corpus.includes("beacon") || corpus.includes("c2") || corpus.includes("syn_sent")) {
-    actions.push("Block related IPs/domains at the network edge and search for beaconing across peer hosts.");
-  }
-
-  if (severityLevel === "High" || severityLevel === "Critical") {
-    actions.push("Escalate to incident response and perform scope expansion on adjacent endpoints.");
-  }
-
-  actions.push("Validate remediation with a follow-up memory scan before returning the host to production.");
-
-  return Array.from(new Set(actions));
-}
-
-function runMemoryAnalysisPipeline(fileBuffer, fileName) {
-  const printableStrings = extractPrintableStrings(fileBuffer);
-  const corpus = printableStrings.join("\n").toLowerCase();
-  const suspiciousProcesses = extractSuspiciousProcesses(printableStrings);
-  const entropy = calculateShannonEntropy(fileBuffer.subarray(0, Math.min(fileBuffer.length, 2 * 1024 * 1024)));
-  const { score: signalScore, matchedSignals } = computeSignalScore(corpus);
-
-  let threatScore = 12;
-  threatScore += Math.min(42, suspiciousProcesses.length * 11);
-  threatScore += signalScore;
-
-  if (entropy >= 7.9) threatScore += 20;
-  else if (entropy >= 7.5) threatScore += 12;
-  else if (entropy >= 7.1) threatScore += 6;
-
-  if (fileBuffer.length > 80 * 1024 * 1024) threatScore += 6;
-  else if (fileBuffer.length > 40 * 1024 * 1024) threatScore += 3;
-
-  threatScore = Math.max(0, Math.min(100, threatScore));
-
-  const severityLevel = severityFromScore(threatScore);
-  const rootCause = inferRootCause({
-    corpus,
-    matchedSignals,
-    suspiciousProcesses,
-    entropy,
-  });
-
-  const outputProcesses =
-    suspiciousProcesses.length > 0
-      ? suspiciousProcesses
-      : threatScore >= 45
-        ? [
-            {
-              processName: "unknown_process",
-              pid: "N/A",
-              reason: "General anomaly score exceeded baseline threshold",
-            },
-          ]
-        : [];
+function createPipelineErrorResponse(error) {
+  const details = {
+    code: error?.code || "PIPELINE_EXECUTION_ERROR",
+    stage: error?.stage || "unknown",
+    message: error?.message || "Pipeline execution failed",
+    details: error?.details || {},
+  };
 
   return {
-    pipelineStages: [
-      "ingest",
-      "feature_extraction",
-      "anomaly_scoring",
-      "threat_classification",
-      "remediation_planning",
-    ],
-    fileName,
-    fileSizeBytes: fileBuffer.length,
-    analyzedAt: new Date().toISOString(),
-    rootCause,
-    severity: {
-      level: severityLevel,
-      score: threatScore,
-      entropy,
-    },
-    suspiciousProcesses: outputProcesses,
-    recommendedActions: buildRecommendedActions({
-      severityLevel,
-      rootCause,
-      corpus,
-    }),
+    category: MEMORY_ANALYSIS_CATEGORY,
+    status: "error",
+    message: "Memory analysis pipeline failed",
+    error: details,
   };
 }
 
-router.post("/memory", requireAuth, rawDumpParser, (req, res) => {
+async function persistAnalysisOutput(payload) {
   try {
-    const category = String(req.query.category || MEMORY_ANALYSIS_CATEGORY).trim();
+    const createdRecord = await AnalysisOutput.create(payload);
+    return {
+      saved: true,
+      id: createdRecord._id.toString(),
+    };
+  } catch (error) {
+    console.error("Failed to persist AnalysisOutput", error);
+    return {
+      saved: false,
+      id: null,
+      errorCode: "PERSISTENCE_WRITE_FAILED",
+      errorMessage: error?.message || "Unable to save analysis output",
+    };
+  }
+}
 
-    if (category !== MEMORY_ANALYSIS_CATEGORY) {
-      res.status(400).json({ message: `Unsupported category: ${category}` });
+async function writeDumpToTempFile(fileBuffer, fileName) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "forensiq-upload-"));
+  const tempFilePath = path.join(tempDir, fileName);
+  await fs.writeFile(tempFilePath, fileBuffer);
+  return { tempDir, tempFilePath };
+}
+
+function mapHistoryRecord(record) {
+  return {
+    id: record._id.toString(),
+    createdAt: record.created_at,
+    filename: record.filename,
+    fileSize: record.file_size,
+    fileHash: record.file_hash,
+    status: record.status,
+    errorMessage: record.error_message,
+    durationMs: record.duration_ms,
+    report: record.result_payload,
+    chartDatasets: record.chart_datasets || null,
+  };
+}
+
+router.post("/memory", attachAuthIfPresent, rawDumpParser, async (req, res) => {
+  const category = String(req.query.category || MEMORY_ANALYSIS_CATEGORY).trim();
+
+  if (category !== MEMORY_ANALYSIS_CATEGORY) {
+    res.status(400).json({ message: `Unsupported category: ${category}` });
+    return;
+  }
+
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    res.status(400).json({ message: "Upload a non-empty memory dump file" });
+    return;
+  }
+
+  const fileName = sanitizeFileName(req.header("X-File-Name"));
+  const fileSizeBytes = req.body.length;
+  const fileHash = crypto.createHash("sha256").update(req.body).digest("hex");
+  const requestStartedAt = Date.now();
+
+  let tempDir = null;
+
+  try {
+    const tempFileContext = await writeDumpToTempFile(req.body, fileName);
+    tempDir = tempFileContext.tempDir;
+
+    const pipelineResult = await executePythonMemoryPipeline({
+      filePath: tempFileContext.tempFilePath,
+      fileName,
+      fileSizeBytes,
+    });
+
+    const durationMs = pipelineResult.durationMs || Date.now() - requestStartedAt;
+
+    if (!pipelineResult.ok) {
+      const errorResponse = createPipelineErrorResponse(pipelineResult.error);
+      const persistence = await persistAnalysisOutput({
+        user: req.userId || null,
+        filename: fileName,
+        file_size: fileSizeBytes,
+        file_hash: fileHash,
+        result_payload: errorResponse,
+        chart_datasets: null,
+        status: "error",
+        error_message: errorResponse.error.message,
+        duration_ms: durationMs,
+      });
+
+      if (!persistence.saved) {
+        errorResponse.persistence = {
+          saved: false,
+          errorCode: persistence.errorCode,
+        };
+      }
+
+      res.status(500).json(errorResponse);
       return;
     }
 
-    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-      res.status(400).json({ message: "Upload a non-empty memory dump file" });
-      return;
+    const responsePayload = {
+      category: MEMORY_ANALYSIS_CATEGORY,
+      status: "success",
+      report: pipelineResult.report,
+    };
+
+    if (pipelineResult.chartDatasets) {
+      responsePayload.chartDatasets = pipelineResult.chartDatasets;
     }
 
-    const fileName = safelyDecode(req.header("X-File-Name"));
-    const report = runMemoryAnalysisPipeline(req.body, fileName);
+    const persistence = await persistAnalysisOutput({
+      user: req.userId || null,
+      filename: fileName,
+      file_size: fileSizeBytes,
+      file_hash: fileHash,
+      result_payload: pipelineResult.report,
+      chart_datasets: pipelineResult.chartDatasets || null,
+      status: "success",
+      error_message: null,
+      duration_ms: durationMs,
+    });
+
+    if (persistence.saved) {
+      responsePayload.analysisId = persistence.id;
+    } else {
+      responsePayload.persistence = {
+        saved: false,
+        errorCode: persistence.errorCode,
+      };
+    }
+
+    res.json(responsePayload);
+  } catch (error) {
+    console.error("Unexpected memory analysis failure", error);
+
+    const fallbackError = {
+      category: MEMORY_ANALYSIS_CATEGORY,
+      status: "error",
+      message: "Memory analysis pipeline failed",
+      error: {
+        code: "ANALYSIS_ROUTE_EXCEPTION",
+        stage: "route",
+        message: "Unexpected exception while processing memory analysis",
+        details: {
+          reason: error?.message || "Unknown error",
+        },
+      },
+    };
+
+    const persistence = await persistAnalysisOutput({
+      user: req.userId || null,
+      filename: fileName,
+      file_size: fileSizeBytes,
+      file_hash: fileHash,
+      result_payload: fallbackError,
+      chart_datasets: null,
+      status: "error",
+      error_message: fallbackError.error.message,
+      duration_ms: Date.now() - requestStartedAt,
+    });
+
+    if (!persistence.saved) {
+      fallbackError.persistence = {
+        saved: false,
+        errorCode: persistence.errorCode,
+      };
+    }
+
+    res.status(500).json(fallbackError);
+  } finally {
+    if (tempDir) {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+router.get("/history", requireAuth, async (req, res) => {
+  try {
+    const page = parsePositiveInt(req.query.page, 1);
+    const requestedLimit = parsePositiveInt(req.query.limit, DEFAULT_HISTORY_LIMIT);
+    const limit = Math.min(requestedLimit, MAX_HISTORY_LIMIT);
+    const skip = (page - 1) * limit;
+
+    const query = { user: req.userId };
+    const [total, records] = await Promise.all([
+      AnalysisOutput.countDocuments(query),
+      AnalysisOutput.find(query).sort({ created_at: -1 }).skip(skip).limit(limit).lean(),
+    ]);
 
     res.json({
-      category: MEMORY_ANALYSIS_CATEGORY,
-      report,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 1,
+      results: records.map(mapHistoryRecord),
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Memory analysis failed" });
+    console.error("Unable to fetch analysis history", error);
+    res.status(500).json({
+      message: "Unable to fetch analysis history",
+      error: {
+        code: "ANALYSIS_HISTORY_FAILED",
+        details: {
+          reason: error?.message || "Unknown error",
+        },
+      },
+    });
   }
 });
 

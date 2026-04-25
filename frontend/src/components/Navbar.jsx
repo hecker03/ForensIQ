@@ -20,6 +20,12 @@ export default function Navbar() {
               >
                 Dashboard
               </Link>
+              <Link
+                to="/analytics"
+                className="text-cyan-300 border border-cyan-400/50 px-4 py-2 rounded-lg hover:bg-cyan-500/10 transition"
+              >
+                Analytics
+              </Link>
               <button
                 onClick={logout}
                 className="text-red-300 border border-red-400/50 px-4 py-2 rounded-lg hover:bg-red-500/10 transition"

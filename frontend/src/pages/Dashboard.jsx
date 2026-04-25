@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import PortalLayout from "../components/layout/PortalLayout";
+import ChartGrid from "../components/charts/ChartGrid";
 import api, { extractApiError } from "../lib/api";
 import { saveOperatorSnapshot } from "../lib/operatorSnapshot";
 
@@ -53,6 +54,7 @@ export default function Dashboard() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisReport, setAnalysisReport] = useState(null);
+  const [analysisChartDatasets, setAnalysisChartDatasets] = useState(null);
   const [error, setError] = useState("");
 
   const selectedCategory = useMemo(
@@ -92,7 +94,9 @@ export default function Dashboard() {
       );
 
       const report = response.data.report;
+      const chartDatasets = response.data.chartDatasets || null;
       setAnalysisReport(report);
+      setAnalysisChartDatasets(chartDatasets);
 
       saveOperatorSnapshot({
         category: selectedCategory.label,
@@ -103,6 +107,7 @@ export default function Dashboard() {
         rootCause: report.rootCause,
         suspiciousProcesses: report.suspiciousProcesses,
         recommendedActions: report.recommendedActions,
+        chartDatasets,
       });
     } catch (err) {
       setError(extractApiError(err, "Unable to run memory analysis"));
@@ -264,6 +269,14 @@ export default function Dashboard() {
             </div>
           )}
         </section>
+
+        {analysisReport ? (
+          <ChartGrid
+            chartDatasets={analysisChartDatasets}
+            title="Report Charts"
+            subtitle="Optional chart datasets returned by the analysis API."
+          />
+        ) : null}
       </div>
     </PortalLayout>
   );

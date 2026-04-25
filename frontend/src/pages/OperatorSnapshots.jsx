@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import PortalLayout from "../components/layout/PortalLayout";
 import useAuth from "../hooks/useAuth";
-import { readOperatorSnapshot } from "../lib/operatorSnapshot";
+import api, { extractApiError } from "../lib/api";
+import { readOperatorSnapshot, saveOperatorSnapshot } from "../lib/operatorSnapshot";
 
 function formatJoinDate(value) {
   if (!value) return "Unknown";
@@ -29,6 +30,91 @@ function formatFileSize(bytes) {
 export default function OperatorSnapshots() {
   const { user } = useAuth();
   const [snapshot, setSnapshot] = useState(() => readOperatorSnapshot());
+  const [loadingRemoteSnapshot, setLoadingRemoteSnapshot] = useState(false);
+  const [remoteSnapshotError, setRemoteSnapshotError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadLatestSnapshot = async () => {
+      try {
+        setLoadingRemoteSnapshot(true);
+        setRemoteSnapshotError("");
+
+        const response = await api.get("/analysis/history?page=1&limit=1");
+        if (cancelled) return;
+
+        const latest = response.data.results?.[0];
+        if (!latest || latest.status !== "success" || !latest.report) {
+          setSnapshot(null);
+          return;
+        }
+
+        const nextSnapshot = {
+          category: "Memory Analysis",
+          analyzedAt: latest.report.analyzedAt,
+          fileName: latest.report.fileName || latest.filename,
+          fileSizeBytes: latest.report.fileSizeBytes || latest.fileSize,
+          severity: latest.report.severity,
+          rootCause: latest.report.rootCause,
+          suspiciousProcesses: latest.report.suspiciousProcesses || [],
+          recommendedActions: latest.report.recommendedActions || [],
+          chartDatasets: latest.chartDatasets || null,
+        };
+
+        setSnapshot(nextSnapshot);
+        saveOperatorSnapshot(nextSnapshot);
+      } catch (error) {
+        if (!cancelled) {
+          setRemoteSnapshotError(extractApiError(error, "Unable to refresh persisted snapshot"));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingRemoteSnapshot(false);
+        }
+      }
+    };
+
+    loadLatestSnapshot();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleRefresh = async () => {
+    try {
+      setLoadingRemoteSnapshot(true);
+      setRemoteSnapshotError("");
+
+      const response = await api.get("/analysis/history?page=1&limit=1");
+      const latest = response.data.results?.[0];
+
+      if (!latest || latest.status !== "success" || !latest.report) {
+        setSnapshot(null);
+        return;
+      }
+
+      const nextSnapshot = {
+        category: "Memory Analysis",
+        analyzedAt: latest.report.analyzedAt,
+        fileName: latest.report.fileName || latest.filename,
+        fileSizeBytes: latest.report.fileSizeBytes || latest.fileSize,
+        severity: latest.report.severity,
+        rootCause: latest.report.rootCause,
+        suspiciousProcesses: latest.report.suspiciousProcesses || [],
+        recommendedActions: latest.report.recommendedActions || [],
+        chartDatasets: latest.chartDatasets || null,
+      };
+
+      setSnapshot(nextSnapshot);
+      saveOperatorSnapshot(nextSnapshot);
+    } catch (error) {
+      setRemoteSnapshotError(extractApiError(error, "Unable to refresh persisted snapshot"));
+    } finally {
+      setLoadingRemoteSnapshot(false);
+    }
+  };
 
   return (
     <PortalLayout
@@ -64,12 +150,14 @@ export default function OperatorSnapshots() {
             </h2>
             <button
               type="button"
-              onClick={() => setSnapshot(readOperatorSnapshot())}
+              onClick={handleRefresh}
               className="rounded-lg border border-gray-700 px-3 py-1.5 text-[11px] font-mono uppercase tracking-widest text-gray-300 hover:border-cyan-500/50 hover:text-cyan-300"
             >
-              Refresh
+              {loadingRemoteSnapshot ? "Refreshing..." : "Refresh"}
             </button>
           </div>
+
+          {remoteSnapshotError ? <p className="text-sm text-red-300 mb-3">{remoteSnapshotError}</p> : null}
 
           {!snapshot ? (
             <div className="rounded-lg border border-gray-800 bg-gray-800/35 p-4">

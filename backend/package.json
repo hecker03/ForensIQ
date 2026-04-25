@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "dev": "nodemon --legacy-watch server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "migrate:analysis-output": "node migrations/20260425_create_analysis_output.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

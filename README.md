@@ -1,97 +1,275 @@
 # ForensIQ
 
-Digital forensic web application with React frontend and Express + MongoDB backend.
+Full-stack digital forensics application with:
 
-## Stack
-- Frontend: React (Vite), Tailwind CSS, React Router, Axios
-- Backend: Node.js, Express, MongoDB (Mongoose), JWT auth
+- React frontend (`frontend/`)
+- Express + MongoDB backend (`backend/`)
+- Python dump-analysis pipeline (`backend/python_pipeline/`)
 
-## Project Structure
-- `frontend/` React app
-- `backend/` API server
-- `main.py` memory-forensics utility script (standalone)
+## End-to-End Flow
 
-## What Is Done
-- Dockerized the development stack using Docker Compose (`frontend` + `backend` + `mongo`).
-- Added dev Dockerfiles for frontend and backend.
-- Added production Dockerfiles for AWS deployment.
-- Added Amplify build config for the frontend.
-- Added `.dockerignore` files for clean image builds.
-- Added Docker env files for container-specific values.
-- Enabled reliable hot reload in containers:
-  - Backend uses `nodemon --legacy-watch`.
-  - Frontend uses Vite on `0.0.0.0:5173` with polling enabled.
-- Added startup link logging in backend console (frontend, login, signup, API, health).
-- Configured backend host mapping as `5001:5000` to avoid common local conflicts on port `5000`.
+1. User uploads a dump file from the dashboard.
+2. Backend writes upload bytes to a short-lived temp file.
+3. Backend runs `plugins.py` (extraction + pattern detection).
+4. Backend runs `train.py` (predict stage).
+5. Backend normalizes outputs into one API response.
+6. Backend persists normalized outputs to `AnalysisOutput`.
+7. Backend returns the normalized response to frontend.
+8. Dashboard renders report + optional charts.
+9. Analytics page shows persisted history + richer visualizations.
 
-## Run with Docker (Dev)
-1. Install and start Docker Desktop.
-2. Set `JWT_SECRET` in `backend/.env.docker`.
-3. Start the full stack:
+## Data Handling Rules
+
+- Raw dump files are never stored in MongoDB.
+- Raw extracted memory contents are never persisted.
+- Only normalized outputs are stored.
+- Local browser snapshot (`operatorSnapshot`) is UX-only and not authoritative.
+
+## Canonical Python Source Location
+
+Canonical runtime location:
+
+- `backend/python_pipeline/plugins.py`
+- `backend/python_pipeline/train.py`
+
+Legacy duplicate folder `Forensiq/` was removed to avoid case-sensitive source duplication.
+
+Root-level `plugins.py` and `train.py` now redirect to the canonical backend pipeline.
+
+## Python Script Contract
+
+See full contract:
+
+- `backend/python_pipeline/CONTRACT.md`
+
+Quick summary:
+
+- `plugins.py` input: `--input-file`, optional metadata (`--file-name`), optional `--output-json`
+- `plugins.py` output: single JSON envelope to stdout (`status: success|error`)
+- `train.py predict` input: `--plugin-output-file`, optional `--file-name`
+- `train.py` output: single JSON envelope to stdout (`status: success|error`)
+
+## Backend Model: `AnalysisOutput`
+
+File: `backend/models/AnalysisOutput.js`
+
+Fields:
+
+- `user`: `ObjectId | null`
+- `created_at`: `Date` (required)
+- `filename`: `String` (required)
+- `file_size`: `Number` bytes (required)
+- `file_hash`: `String | null` (SHA-256)
+- `result_payload`: `JSON` (required normalized report only)
+- `chart_datasets`: `JSON | null`
+- `status`: enum `success | error`
+- `error_message`: `String | null`
+- `duration_ms`: `Number | null`
+
+Index:
+
+- compound index on `{ user: 1, created_at: -1 }`
+
+## Migration
+
+Migration script:
+
+- `backend/migrations/20260425_create_analysis_output.js`
+
+Run:
+
+```bash
+cd backend
+npm run migrate:analysis-output
+```
+
+## API Endpoints
+
+### `POST /api/analysis/memory`
+
+- Auth: optional (`Bearer` token if available)
+- Content-Type: `application/octet-stream`
+- Headers:
+  - `X-File-Name`: URL-encoded filename
+- Query:
+  - `category=Memory%20Analysis`
+
+Success response:
+
+```json
+{
+  "category": "Memory Analysis",
+  "status": "success",
+  "report": {
+    "pipelineStages": ["..."],
+    "fileName": "sample.dmp",
+    "fileSizeBytes": 1234,
+    "analyzedAt": "2026-04-25T00:00:00.000Z",
+    "rootCause": "...",
+    "severity": { "level": "High", "score": 72, "entropy": 7.31 },
+    "suspiciousProcesses": [],
+    "recommendedActions": []
+  },
+  "chartDatasets": { "version": 1, "charts": [] },
+  "analysisId": "..."
+}
+```
+
+Error response is deterministic and structured:
+
+```json
+{
+  "category": "Memory Analysis",
+  "status": "error",
+  "message": "Memory analysis pipeline failed",
+  "error": {
+    "code": "SCRIPT_TIMEOUT",
+    "stage": "plugins",
+    "message": "plugins.py timed out",
+    "details": {}
+  }
+}
+```
+
+Persistence failure behavior:
+
+- The API still returns computed result/error payload.
+- Persistence issues are logged server-side and surfaced only as additive metadata.
+
+### `GET /api/analysis/history?page=1&limit=10`
+
+- Auth: required (`Bearer` token)
+- Unauthenticated response: `401 Unauthorized`
+
+Response:
+
+```json
+{
+  "page": 1,
+  "limit": 10,
+  "total": 42,
+  "totalPages": 5,
+  "results": [
+    {
+      "id": "...",
+      "createdAt": "2026-04-25T00:00:00.000Z",
+      "filename": "sample.dmp",
+      "fileSize": 1234,
+      "fileHash": "...",
+      "status": "success",
+      "errorMessage": null,
+      "durationMs": 1900,
+      "report": { "...": "..." },
+      "chartDatasets": { "...": "..." }
+    }
+  ]
+}
+```
+
+## Backward Compatibility Notes
+
+- Existing dashboard response fields were kept:
+  - `category`
+  - `report`
+  - report members (`pipelineStages`, `fileName`, `fileSizeBytes`, `analyzedAt`, `rootCause`, `severity`, `suspiciousProcesses`, `recommendedActions`)
+- Added fields are additive and optional:
+  - `status`
+  - `chartDatasets`
+  - `analysisId`
+  - `persistence` (only when save fails)
+- `InputRecord` model remains unchanged.
+
+## Frontend Behavior
+
+- Dashboard upload/report UX remains intact.
+- Dashboard renders chart visuals only when `chartDatasets` is present.
+- If `chartDatasets` is absent, no chart container is rendered.
+- Analytics page (`/analytics`):
+  - authenticated users: paginated persisted history + chart views
+  - unauthenticated users: login/signup prompt (no history data shown)
+
+## Environment Variables
+
+Backend:
+
+- `PORT` (example: `5000`)
+- `MONGODB_URI` (example: `mongodb://127.0.0.1:27017/forensiq`)
+- `JWT_SECRET` (example: `replace-with-a-strong-secret`)
+- `CLIENT_ORIGIN` (example: `http://localhost:5173`)
+- `PUBLIC_API_URL` (example: `http://localhost:5001/api`)
+- `PYTHON_EXECUTABLE` (example: `python3`)
+- `PYTHON_PIPELINE_DIR` (example: `/app/python_pipeline` in Docker, `./python_pipeline` local backend)
+- `PYTHON_SCRIPT_TIMEOUT_MS` (example: `120000`)
+
+Frontend:
+
+- `VITE_API_URL` (example: `http://localhost:5001/api`)
+
+## Docker
+
+### Backend Production Image
+
+- Base image: `node:bookworm-slim`
+- Python install: minimal runtime (`python3`) only
+- No Python dev toolchain in production image
+- Dockerfile: `backend/Dockerfile`
+
+### Backend Development Image
+
+- Base image: `node:bookworm`
+- Full Python toolchain installed (`python3`, `pip`, `venv`, headers, build/debug tools)
+- Dev extras from `backend/python_pipeline/requirements-dev.txt`
+- Dockerfile: `backend/Dockerfile.dev`
+
+### Cache-friendly Layering
+
+Both backend Dockerfiles install OS + Node dependencies before copying source files to preserve cache reuse.
+
+## Local Development (Docker Compose)
+
+Start:
 
 ```bash
 docker compose up --build -d
 ```
 
-4. Open:
-- Frontend: `http://localhost:5173`
-- API Base: `http://localhost:5001/api`
-- Health Check: `http://localhost:5001/api/health`
-
-5. Stop containers:
+Stop:
 
 ```bash
 docker compose down
 ```
 
-6. Stop and reset MongoDB data:
+Reset DB volume:
 
 ```bash
 docker compose down -v
 ```
 
-## Useful Commands
-```bash
-# Run in background
-docker compose up --build -d
+Access:
 
-# Follow logs
-docker compose logs -f
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:5001/api`
+- Health: `http://localhost:5001/api/health`
 
-# Follow only backend logs
-docker compose logs -f backend
-```
+## Render Deployment Notes
 
-## AWS / Amplify Deployment
+### Backend (Render Web Service)
 
-### Frontend on Amplify
-1. Connect the repo to AWS Amplify.
-2. Use the root [amplify.yml](amplify.yml) build spec.
-3. Set a frontend environment variable in Amplify:
-  - `VITE_API_URL=https://your-backend-domain/api`
-4. Add a single-page-app rewrite rule in Amplify so React Router routes like `/login` and `/dashboard` resolve to `index.html`.
+- Build command:
+  - `docker build -f backend/Dockerfile -t forensiq-backend backend`
+- Start command (inside container):
+  - `npm start`
+- Required env vars:
+  - `PORT`
+  - `MONGODB_URI`
+  - `JWT_SECRET`
+  - `CLIENT_ORIGIN`
+  - `PUBLIC_API_URL`
+  - `PYTHON_EXECUTABLE` (default `python3`)
+  - `PYTHON_PIPELINE_DIR` (default `/app/python_pipeline`)
+  - `PYTHON_SCRIPT_TIMEOUT_MS`
 
-### Backend on AWS
-The backend is ready to run as a container with [backend/Dockerfile](backend/Dockerfile).
+### Frontend
 
-Set these environment variables in your AWS runtime:
-- `PORT=5000`
-- `MONGODB_URI=...`
-- `JWT_SECRET=...`
-- `CLIENT_ORIGIN=https://your-amplify-domain.amplifyapp.com`
-- `PUBLIC_API_URL=https://your-backend-domain/api`
-
-### Build locally for production
-Frontend:
-```bash
-cd frontend
-npm ci
-npm run build
-```
-
-Backend container image:
-```bash
-docker build -t forensiq-backend -f backend/Dockerfile backend
-```
-
-https://docs.google.com/document/d/10isK52p62umktyicacR8GQcRAsorc19I/edit?usp=sharing&ouid=118237286114732757274&rtpof=true&sd=true
+- Continue using existing frontend build/deploy flow.
+- Set `VITE_API_URL` to deployed backend `/api` URL.

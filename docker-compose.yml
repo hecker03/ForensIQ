@@ -28,6 +28,9 @@ services:
       MONGODB_URI: mongodb://mongo:27017/forensiq
       CLIENT_ORIGIN: http://localhost:5173
       PUBLIC_API_URL: http://localhost:5001/api
+      PYTHON_EXECUTABLE: python3
+      PYTHON_PIPELINE_DIR: /app/python_pipeline
+      PYTHON_SCRIPT_TIMEOUT_MS: "120000"
     depends_on:
       mongo:
         condition: service_healthy

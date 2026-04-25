@@ -1,11 +1,30 @@
-FROM node:22-alpine
+FROM node:bookworm
 
 WORKDIR /app
+
+# Full Python toolchain for local development and debugging.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-dev \
+    build-essential \
+    gdb \
+    curl \
+    git \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 RUN npm ci
 
 COPY . .
+
+RUN pip3 install --no-cache-dir -r python_pipeline/requirements-dev.txt
+
+ENV PYTHON_EXECUTABLE=python3
+ENV PYTHON_PIPELINE_DIR=/app/python_pipeline
+ENV PYTHON_SCRIPT_TIMEOUT_MS=120000
 
 EXPOSE 5000
 
